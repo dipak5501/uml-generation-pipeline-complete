@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -144,6 +145,7 @@ def generate_technical_spec(
     diagram_type: str,
     settings: Settings | None = None,
     input_mode: str = "requirement",
+    skip_llm: bool = False,
 ) -> tuple[str, dict, str, str, str, list[str]]:
     """Returns (spec_prose, spec_json, prompt_name, prompt_version, model_name, validity_msgs)."""
     from app.services.input_prepare import (
@@ -158,6 +160,17 @@ def generate_technical_spec(
     mode = input_mode
     if mode == "requirement" and looks_like_source_code(requirement):
         mode = "source_code"
+
+    # Interactive fast path: skip Ollama spec (tiny models often emit invalid JSON
+    # and then retry — that alone is 10–20s before PlantUML even starts).
+    if skip_llm and not settings.mock_providers:
+        spec_json, prose, msgs = ensure_valid_spec(
+            requirement,
+            diagram_type,
+            source_text=requirement,
+            input_mode="source_code" if mode == "source_code" else "requirement",
+        )
+        return prose, spec_json, "requirement_to_tech_spec", "v1", "grounded-fast", msgs
 
     provider = build_chat_provider(settings, model=settings.spec_model)
     json_system = (
@@ -268,6 +281,7 @@ def generate_plantuml_code(
     spec_json: dict | None = None,
     adapt: AdaptationSession | None = None,
     memory: AdaptationMemory | None = None,
+    skip_vlm: bool = False,
 ) -> tuple[str, str, str, str, bool]:
     """Returns (plantuml, prompt_name, prompt_version, model_name, used_cot).
 
@@ -317,6 +331,10 @@ def generate_plantuml_code(
 
     memory = memory or AdaptationMemory()
     generator, gen_reason = choose_generator(diagram_type, settings=settings, memory=memory)
+    # Interactive (no VLM) uses the grounded builder so a short sentence is not blocked on LoRA.
+    if skip_vlm and spec_json:
+        generator = "spec-builder"
+        gen_reason = "interactive: spec-builder (skip LoRA until VLM scoring is requested)"
     if adapt is not None:
         adapt.generator = generator
         adapt.generator_reason = gen_reason
@@ -455,12 +473,18 @@ def score_image(
     image_path: Path,
     specification: str,
     settings: Settings | None = None,
+    requirement: str | None = None,
 ) -> tuple[dict[str, int | None], dict[str, dict], float]:
     """Returns (scores, meta_by_key, composite)."""
     settings = settings or get_settings()
     weights = settings.vlm_weight_map
     providers = build_vlm_providers(settings)
-    _, scoring_prompt = render_prompt("vlm_scoring", "v1", specification=specification)
+    _, scoring_prompt = render_prompt(
+        "vlm_scoring",
+        "v1",
+        specification=specification or "",
+        requirement=(requirement or specification or "")[:8000],
+    )
 
     scores: dict[str, int | None] = {}
     meta: dict[str, dict] = {}
@@ -586,9 +610,15 @@ def run_single_generation(
     session.commit()
     session.refresh(req)
 
+    t0 = time.perf_counter()
     spec_text, spec_json, spec_prompt, spec_ver, spec_model, spec_msgs = generate_technical_spec(
-        requirement, diagram_type, settings, input_mode=resolved_mode
+        requirement,
+        diagram_type,
+        settings,
+        input_mode=resolved_mode,
+        skip_llm=skip_vlm,
     )
+    logger.info("stage spec %.1fs model=%s skip_vlm=%s", time.perf_counter() - t0, spec_model, skip_vlm)
     if spec_msgs:
         logger.info("Stage-1 JSON validity notes: %s", "; ".join(spec_msgs[:4]))
     tech = TechnicalSpecification(
@@ -623,6 +653,7 @@ def run_single_generation(
 
     adapt = AdaptationSession(diagram_type=diagram_type)
     memory = AdaptationMemory()
+    t1 = time.perf_counter()
     plantuml, p_name, p_ver, code_model, used_cot = generate_plantuml_code(
         spec_text,
         diagram_type,
@@ -631,7 +662,9 @@ def run_single_generation(
         spec_json=spec_json,
         adapt=adapt,
         memory=memory,
+        skip_vlm=skip_vlm,
     )
+    logger.info("stage plantuml %.1fs model=%s", time.perf_counter() - t1, code_model)
     validation = validate_diagram(plantuml, diagram_type)
     validation_msgs = list(validation.messages)
     if validation_note:
@@ -738,7 +771,10 @@ def run_single_generation(
         compile_ok, compile_err = check_plantuml_syntax(
             artifact.plantuml_code, jar, work_dir=out_dir / "syntax"
         )
-        if not compile_ok and attempt < settings.max_repair_attempts:
+        no_local_java = bool(compile_err) and (
+            "no usable java" in compile_err.lower() or "java not found" in compile_err.lower()
+        )
+        if not compile_ok and not no_local_java and attempt < settings.max_repair_attempts:
             _apply_repair([compile_err or "PlantUML compile failed"], FAILURE_COMPILE)
             continue
 
@@ -783,7 +819,7 @@ def run_single_generation(
             render_ok=True,
             repair_iterations=attempt,
         )
-        if report.accepted:
+        if report.accepted or skip_vlm:
             break
         if attempt >= settings.max_repair_attempts:
             break
@@ -874,6 +910,7 @@ def run_single_generation(
         artifact.render_status = "success"
         artifact.image_path = str(image_path)
         if skip_vlm:
+            logger.info("stage vlm skipped (interactive fast path)")
             for key in settings.vlm_weight_map:
                 scores[key] = None
                 meta[key] = {
@@ -892,7 +929,11 @@ def run_single_generation(
             )
             validation_msgs.append("VLM ensemble skipped (interactive generate)")
         else:
-            scores, meta, _ = score_image(image_path, spec_text, settings)
+            t_vlm = time.perf_counter()
+            scores, meta, _ = score_image(
+                image_path, spec_text, settings, requirement=requirement
+            )
+            logger.info("stage vlm %.1fs models=%s", time.perf_counter() - t_vlm, list(scores))
             verification = verify_scores(
                 scores,
                 settings.vlm_weight_map,

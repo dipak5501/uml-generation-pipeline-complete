@@ -265,6 +265,8 @@ def build_vlm_providers(settings: Settings | None = None) -> dict[str, object]:
         #   llama32vl11b   -> Ollama :11434 (llama3.2-vision:11b)
         #   aya_vision_8b  -> configured Aya backend (not available on Ollama)
         if key == "aya_vision_8b":
+            if not getattr(settings, "use_aya", False):
+                continue
             providers[key] = _build_aya_provider(settings, model)
         else:
             providers[key] = _live_chat_provider(settings, model)

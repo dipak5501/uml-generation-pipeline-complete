@@ -87,7 +87,9 @@ def main() -> None:
                     shutil.copy2(img, stable)
                 a.image_path = str(stable)
                 a.render_status = "success"
-                scores, meta, _ = score_image(stable, a.technical_spec, settings)
+                scores, meta, _ = score_image(
+                    stable, a.technical_spec, settings, requirement=a.source_requirement
+                )
                 verification = verify_scores(
                     scores,
                     settings.vlm_weight_map,

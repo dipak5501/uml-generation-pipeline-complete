@@ -39,3 +39,12 @@ paper/*.blg
 paper/*.synctex.gz
 paper/*.fdb_latexmk
 paper/*.fls
+
+# Complete-transfer repo: keep LoRA + SQLite so a new Mac can restore state
+!models/uml-plantuml-lora/
+!models/uml-plantuml-lora/**
+!data/uml_app.db
+!cursor-chats/
+!cursor-chats/**
+.env
+data/aya_weights/

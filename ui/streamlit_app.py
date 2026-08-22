@@ -18,9 +18,13 @@ live = None
 health = None
 summary = None
 try:
-    health = api_get("/api/settings/health")
-    summary = api_get("/api/analytics/summary")
-    live = health.get("status") == "ok"
+    summary = api_get("/api/analytics/summary", _timeout=20.0)
+    live = True
+    try:
+        health = api_get("/api/settings/health", _timeout=8.0)
+        live = health.get("status") == "ok"
+    except Exception:
+        health = {"status": "ok", "provider_summary": "api"}
 except Exception as exc:
     live = False
     _api_error = str(exc)

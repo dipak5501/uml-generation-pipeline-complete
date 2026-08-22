@@ -3,7 +3,7 @@ import streamlit as st
 
 from ui.theme import apply_theme
 
-from ui.api_client import API_BASE, api_get
+from ui.api_client import PUBLIC_API_BASE, api_get
 
 st.set_page_config(page_title="UML-Pipeline · Analytics", layout="wide")
 apply_theme()
@@ -66,7 +66,7 @@ st.write(
 
 st.subheader("Export")
 st.markdown(
-    f"- [JSONL]({API_BASE}/api/export/dataset?fmt=jsonl)\n"
-    f"- [CSV]({API_BASE}/api/export/dataset?fmt=csv)\n"
-    f"- [Parquet]({API_BASE}/api/export/dataset?fmt=parquet)"
+    f"- [JSONL]({PUBLIC_API_BASE}/api/export/dataset?fmt=jsonl)\n"
+    f"- [CSV]({PUBLIC_API_BASE}/api/export/dataset?fmt=csv)\n"
+    f"- [Parquet]({PUBLIC_API_BASE}/api/export/dataset?fmt=parquet)"
 )

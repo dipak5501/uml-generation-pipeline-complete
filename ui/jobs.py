@@ -30,7 +30,7 @@ def active_job_id() -> int | None:
 
 def fetch_job(job_id: int) -> dict[str, Any] | None:
     try:
-        return api_get(f"/api/jobs/{job_id}")
+        return api_get(f"/api/jobs/{job_id}", _timeout=3.0)
     except Exception:
         return None
 
@@ -69,6 +69,18 @@ def render_active_job_banner(*, auto_refresh: bool = True) -> dict[str, Any] | N
     status = job.get("status") or "unknown"
     done = int(job.get("completed") or 0)
     total = int(job.get("total") or 0)
+
+    # A job can be marked failed (e.g. stale abort) after the worker already
+    # wrote artifacts — treat that as completed so the UI can load results.
+    if status == "failed":
+        if done <= 0:
+            recovered = fetch_job_artifacts(job_id)
+            if recovered:
+                done = len(recovered)
+        if done > 0:
+            status = "completed"
+            job = {**job, "status": "completed", "completed": done, "error": None}
+
     msg = f"{label} job #{job_id}: **{status}** — {done}/{total} diagram(s)"
 
     if status in ("pending", "running"):

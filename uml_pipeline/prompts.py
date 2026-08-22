@@ -44,26 +44,21 @@ Technical specification:
 {specification}
 """
 
-VLM_SCORING_PROMPT = """You are evaluating a UML/flowchart diagram image against a technical specification.
-The specification may come from natural-language requirements OR reverse-engineered source code.
+VLM_SCORING_PROMPT = """You are a strict UML reviewer. Score the diagram IMAGE against the ORIGINAL REQUIREMENT first.
 
-Specification:
+ORIGINAL REQUIREMENT / SOURCE:
+{requirement}
+
+TECHNICAL SPEC (secondary):
 {specification}
 
-Score the diagram from 0 to 6 using these paper criteria jointly:
-1. Semantic correctness — entities/relationships/constraints match the specification (penalize hallucination/omission)
-2. Structural completeness — all major mandated components are present
-3. Syntactic accuracy — correct UML/PlantUML notation for the diagram type
-4. Overall coherence — clear, usable, consistent layout and naming
+Score EACH criterion 0-6, then SCORE = rounded average. Do not default to 5.
+Typical auto-generated diagrams are 3 or 4. Reserve 5-6 for complete domain models.
 
-Scale:
-- 0: missing, unreadable, non-renderable, or no alignment
-- 1-2: major gaps or wrong diagram type
-- 3-4: partial alignment with notable issues
-- 5: strong alignment with minor issues
-- 6: complete alignment
-
-Respond in exactly this format (no other prose before SCORE):
-SCORE: <integer 0-6>
-EXPLANATION: <2-4 sentences covering semantic, structural, syntactic, and coherence findings>
+SEMANTIC: <0-6>
+STRUCTURAL: <0-6>
+SYNTACTIC: <0-6>
+COHERENCE: <0-6>
+SCORE: <0-6>
+EXPLANATION: <what is missing from the original requirement>
 """

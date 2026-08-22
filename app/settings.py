@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     vlm_aya_backend: str = "local"
     aya_vlm_model: str = "CohereLabs/aya-vision-8b"
     aya_vlm_base_url: str = ""  # e.g. http://YOUR_GCP_VM:8000/v1
+    # Off until explicitly enabled — local Aya-Vision-8B is too slow for interactive runs.
+    use_aya: bool = False
 
     # VLM weights (MMMU) from the paper
     weight_qwen25vl3b: float = 53.1

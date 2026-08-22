@@ -124,7 +124,7 @@ st.caption(
     "Tips for reliable runs: use 2–8 clear sentences (or a focused class file), pick one "
     "diagram type that matches the content, and avoid pasting entire repos. Long inputs are "
     "auto-clipped for the model but still grounded structurally. Leave **Score with VLMs** "
-    "on to get Qwen / LLaMA / Aya scores; uncheck it only if you want a fast diagram with no S."
+    "unchecked for a fast diagram. Check it only when you need Qwen / LLaMA / Aya scores."
 )
 
 left, right = st.columns([1.2, 1])
@@ -137,9 +137,9 @@ with right:
     gen_all = st.checkbox("Also generate the other diagram types", value=False)
     score_vlm = st.checkbox(
         "Score with VLMs (paper composite S)",
-        value=True,
-        help="If off, PlantUML still renders but S stays unscored (shown as 0 / —). "
-        "If on, generation waits for vision models (~1–2 minutes).",
+        value=False,
+        help="Off = diagram in seconds (spec-builder, no Qwen/LLaMA/Aya). "
+        "On = all 3 VLMs (~1–2 minutes) for thesis score S.",
     )
 
 can_run = bool((requirement or "").strip())
@@ -203,7 +203,12 @@ if job_id is not None:
             st.success(f"Loaded {len(arts)} artifact(s) from job #{job_id}.")
             st.rerun()
     elif job and job.get("status") == "failed":
-        clear_job()
+        arts = load_job_results_into_session(job_id)
+        if arts:
+            clear_job()
+            st.success(f"Loaded {len(arts)} artifact(s) from job #{job_id} (recovered).")
+            st.rerun()
+        # Keep the failed banner so the user can dismiss; do not drop results.
 
 artifact = st.session_state.get("last_artifact")
 if not artifact:

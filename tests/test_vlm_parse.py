@@ -24,3 +24,17 @@ def test_parse_missing_defaults_zero():
     score, explanation = parse_score_response("no numeric score here")
     assert score == 0
     assert explanation == "no numeric score here"
+
+
+def test_parse_criterion_average_overrides_rubber_stamp():
+    text = """SEMANTIC: 3
+STRUCTURAL: 3
+SYNTACTIC: 5
+COHERENCE: 4
+SCORE: 5
+EXPLANATION: Generic classes only; cart and checkout are missing.
+"""
+    score, explanation = parse_score_response(text)
+    assert score == 4
+    assert explanation is not None
+    assert "cart" in explanation.lower()

@@ -188,8 +188,9 @@ if opened:
         )
         more_vlm = st.checkbox(
             "Score with all 3 VLMs (Qwen, LLaMA-Vision, Aya)",
-            value=True,
+            value=False,
             key=f"more-vlm-{opened['id']}",
+            help="Off = diagram in seconds. On = ~1–6 minutes (three vision models, including Aya-Vision-8B).",
         )
         busy = active_job_id() is not None
         if st.button(

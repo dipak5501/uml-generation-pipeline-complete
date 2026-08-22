@@ -13,8 +13,8 @@ hero(
 )
 
 try:
-    summary = api_get("/api/analytics/summary")
-    artifacts = api_get("/api/artifacts")
+    summary = api_get("/api/analytics/summary", _timeout=20.0)
+    artifacts = api_get("/api/artifacts", limit=12, _timeout=20.0)
 except Exception as exc:
     st.error(f"API error: {exc}")
     st.stop()

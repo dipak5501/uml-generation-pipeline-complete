@@ -48,6 +48,24 @@ stop_port() {
 stop_port 8000
 stop_port 8501
 
+# Listen on all interfaces so phones/laptops on the same Wi-Fi can open the UI.
+# Streamlit still talks to FastAPI on this Mac; other devices only need a browser.
+BIND_HOST="${UML_BIND_HOST:-0.0.0.0}"
+LAN_IP=""
+for iface in en0 en1 en2; do
+  LAN_IP="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+  [ -n "$LAN_IP" ] && break
+done
+if [ -z "$LAN_IP" ]; then
+  LAN_IP="$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')"
+fi
+# Browser download links (export) may use a LAN host; Streamlit→API stays loopback.
+export API_BASE_URL="http://127.0.0.1:8000"
+export PUBLIC_API_BASE_URL="http://127.0.0.1:8000"
+if [ -n "$LAN_IP" ]; then
+  export PUBLIC_API_BASE_URL="http://${LAN_IP}:8000"
+fi
+
 PY="$ROOT/.venv/bin/python"
 UVICORN="$ROOT/.venv/bin/uvicorn"
 STREAMLIT="$ROOT/.venv/bin/streamlit"
@@ -61,7 +79,7 @@ fi
 # their terminal ends (plain `nohup … &` still shares the process group).
 : >"$API_LOG"
 : >"$UI_LOG"
-"$PY" - "$PID_DIR/api.pid" "$API_LOG" "$UVICORN" app.main:app --host 127.0.0.1 --port 8000 <<'PY'
+"$PY" - "$PID_DIR/api.pid" "$API_LOG" "$UVICORN" app.main:app --host "$BIND_HOST" --port 8000 <<'PY'
 import os, subprocess, sys
 pid_file, log_path, *cmd = sys.argv[1:]
 with open(log_path, "a") as log:
@@ -79,7 +97,8 @@ print(proc.pid)
 PY
 
 "$PY" - "$PID_DIR/ui.pid" "$UI_LOG" "$STREAMLIT" run ui/streamlit_app.py \
-  --server.port 8501 --server.address 127.0.0.1 --server.headless true <<'PY'
+  --server.port 8501 --server.address "$BIND_HOST" --server.headless true \
+  --server.enableCORS false --server.enableXsrfProtection false <<'PY'
 import os, subprocess, sys
 pid_file, log_path, *cmd = sys.argv[1:]
 with open(log_path, "a") as log:
@@ -98,9 +117,9 @@ PY
 
 # Wait until healthy
 ok=0
-for i in $(seq 1 30); do
-  if curl -sf http://127.0.0.1:8000/api/settings/health >/dev/null \
-     && curl -sf http://127.0.0.1:8501/ >/dev/null; then
+for i in $(seq 1 40); do
+  if curl --max-time 3 -sf http://127.0.0.1:8000/docs >/dev/null \
+     && curl --max-time 3 -sf http://127.0.0.1:8501/ >/dev/null; then
     ok=1
     break
   fi
@@ -111,8 +130,15 @@ echo "API pid=$(cat "$PID_DIR/api.pid")  log=$API_LOG"
 echo "UI  pid=$(cat "$PID_DIR/ui.pid")  log=$UI_LOG"
 if [ "$ok" -eq 1 ]; then
   echo "READY"
-  echo "Open: http://127.0.0.1:8501"
-  echo "API:  http://127.0.0.1:8000/docs"
+  echo "This Mac:     http://127.0.0.1:8501"
+  if [ -n "$LAN_IP" ]; then
+    echo "Other device: http://${LAN_IP}:8501"
+    echo "Same Wi-Fi only. If it fails, allow Python/Streamlit in macOS Firewall"
+    echo "(System Settings → Network → Firewall) for ports 8501 and 8000."
+  else
+    echo "Could not detect Wi-Fi IP. On this Mac run: ipconfig getifaddr en0"
+  fi
+    echo "API docs:     ${PUBLIC_API_BASE_URL}/docs"
   exit 0
 fi
 

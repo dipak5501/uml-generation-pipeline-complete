@@ -50,7 +50,7 @@ class FinetunedMLXProvider:
                 f"Fine-tuned adapter not found at {self.adapter_path}. "
                 "Run: python scripts/finetune_plantuml.py"
             )
-        from mlx_lm import generate
+        from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
 
         model, tokenizer = _load(self.base_model, self.adapter_path)
@@ -67,15 +67,21 @@ class FinetunedMLXProvider:
 
         temp = temperature if temperature is not None else self.temperature
         sampler = make_sampler(temp=max(0.01, float(temp)))
-        text = generate(
+        chunks: list[str] = []
+        for response in stream_generate(
             model,
             tokenizer,
             prompt=prompt,
             max_tokens=self.max_tokens,
             sampler=sampler,
-            verbose=False,
-        )
-        return (text or "").strip()
+        ):
+            piece = getattr(response, "text", None) or ""
+            if piece:
+                chunks.append(piece)
+            so_far = "".join(chunks)
+            if "@enduml" in so_far.lower():
+                break
+        return ("".join(chunks) or "").strip()
 
     def vision_score(self, image_path: Path, prompt: str) -> int:
         raise NotImplementedError("Fine-tuned provider is text-only (PlantUML code model)")

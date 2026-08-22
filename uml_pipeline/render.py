@@ -7,6 +7,7 @@ import subprocess
 import urllib.error
 import urllib.request
 import zlib
+from functools import lru_cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -14,8 +15,49 @@ PLANTUML_JAR_URL = "https://github.com/plantuml/plantuml/releases/download/v1.20
 DEFAULT_PLANTUML_SERVER = "https://www.plantuml.com/plantuml"
 
 
+_JAVA_UNSET = object()
+_java_executable_cache: str | None | object = _JAVA_UNSET
+
+
+def _probe_java_version(exe: str, timeout: float = 1.5) -> str | None:
+    """Return java -version text, or None if missing/hanging.
+
+    ``subprocess.run(..., timeout=)`` can block forever: after SIGKILL it still
+    ``wait()``s for D-state processes. The bundled Temurin JRE in ``tools/``
+    hangs that way on this Mac, which froze generation after the spec stage.
+    """
+    try:
+        proc = subprocess.Popen(
+            [exe, "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            proc.communicate(timeout=0.2)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return None
+    except OSError:
+        return None
+    return (stderr or "") + (stdout or "")
+
+
 def find_java_executable() -> str | None:
     """Resolve a working java binary: JAVA_HOME, bundled tools/jdk, then PATH."""
+    global _java_executable_cache
+    if _java_executable_cache is not _JAVA_UNSET:
+        return _java_executable_cache  # type: ignore[return-value]
+
     candidates: list[Path] = []
     java_home = os.getenv("JAVA_HOME")
     if java_home:
@@ -29,18 +71,34 @@ def find_java_executable() -> str | None:
 
     candidates.append(Path("java"))
 
+    seen: set[str] = set()
+    ordered: list[Path] = []
     for candidate in candidates:
-        exe = str(candidate)
-        try:
-            result = subprocess.run([exe, "-version"], capture_output=True, text=True, timeout=10)
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        key = str(candidate)
+        if key in seen:
             continue
-        combined = (result.stderr or "") + (result.stdout or "")
+        seen.add(key)
+        ordered.append(candidate)
+        if len(ordered) >= 6:
+            break
+
+    found: str | None = None
+    for candidate in ordered:
+        exe = str(candidate)
+        # This extracted JRE never returns from `java -version` on this host.
+        if "jdk-17.0.19" in exe.replace("\\", "/"):
+            continue
+        combined = _probe_java_version(exe)
+        if not combined:
+            continue
         if "Unable to locate a Java Runtime" in combined:
             continue
-        if result.returncode == 0 or "version" in combined.lower():
-            return exe
-    return None
+        if "version" in combined.lower():
+            found = exe
+            break
+
+    _java_executable_cache = found
+    return found
 
 
 def ensure_plantuml_jar(jar_path: Path) -> Path:
@@ -62,6 +120,7 @@ def extract_plantuml_block(text: str) -> str:
     return f"@startuml\n{text}\n@enduml"
 
 
+@lru_cache(maxsize=1)
 def java_runtime_ok() -> bool:
     """True only if a real JDK/JRE can execute (Apple's stub returns false)."""
     return find_java_executable() is not None

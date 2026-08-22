@@ -57,12 +57,17 @@ def adaptation_status():
 
 
 @router.get("/settings/health", response_model=HealthResponse)
-def health(session: Session = Depends(get_session)):
+def health():
     settings = get_settings()
     messages: list[str] = []
     database_ok = True
     try:
-        session.connection()
+        from sqlalchemy import text
+
+        from app.db import get_engine
+
+        with get_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
     except Exception as exc:
         database_ok = False
         messages.append(f"Database error: {exc}")
@@ -71,13 +76,12 @@ def health(session: Session = Depends(get_session)):
     if not jar_ok:
         messages.append(f"PlantUML jar missing at {settings.plantuml_jar} (will auto-download on first render)")
 
-    from uml_pipeline.render import java_runtime_ok
-
-    java_ok = java_runtime_ok()
+    # Do not call java -version here — it can hang and freeze the Streamlit home page.
+    java_home = (os.getenv("JAVA_HOME") or "").strip()
+    java_ok = bool(java_home) and Path(java_home, "bin", "java").is_file()
     if not java_ok:
         messages.append(
-            "No usable local Java JDK — renders use the PlantUML HTTP server fallback "
-            "(set PLANTUML_REMOTE=false to disable)."
+            "No JAVA_HOME java binary on disk — renders may use the PlantUML HTTP server fallback."
         )
 
     if settings.mock_providers:
@@ -94,23 +98,29 @@ def health(session: Session = Depends(get_session)):
             f"Qwen2.5-VL at {settings.ollama_qwen_base_url}"
         )
         messages.append(f"VLM ensemble: {settings.vlm_models}")
-        aya_backend = (settings.vlm_aya_backend or "ollama_standin").strip().lower()
-        if aya_backend in {"local", "transformers", "mps", "local_transformers"}:
+        if not settings.use_aya:
             messages.append(
-                f"Aya-Vision-8B backend: local transformers ({settings.aya_vlm_model}) — paper-exact"
+                "USE_AYA=false — Aya-Vision-8B skipped (Qwen + LLaMA-Vision only). "
+                "Set USE_AYA=true when you want the paper 3rd VLM."
             )
-        elif aya_backend in {"ollama_standin", "ollama", "standin", ""}:
-            messages.append(
-                "Aya-Vision-8B backend: llava:7b stand-in (not paper-exact). "
-                "Set VLM_AYA_BACKEND=local for paper-exact Aya on this Mac."
-            )
-        elif aya_backend in {"hf", "huggingface"}:
-            messages.append(f"Aya-Vision backend: Hugging Face ({settings.aya_vlm_model})")
         else:
-            messages.append(
-                f"Aya-Vision backend: openai_compat ({settings.aya_vlm_model} @ "
-                f"{settings.aya_vlm_base_url or 'AYA_VLM_BASE_URL unset'})"
-            )
+            aya_backend = (settings.vlm_aya_backend or "ollama_standin").strip().lower()
+            if aya_backend in {"local", "transformers", "mps", "local_transformers"}:
+                messages.append(
+                    f"Aya-Vision-8B backend: local transformers ({settings.aya_vlm_model}) — paper-exact"
+                )
+            elif aya_backend in {"ollama_standin", "ollama", "standin", ""}:
+                messages.append(
+                    "Aya-Vision-8B backend: llava:7b stand-in (not paper-exact). "
+                    "Set VLM_AYA_BACKEND=local for paper-exact Aya on this Mac."
+                )
+            elif aya_backend in {"hf", "huggingface"}:
+                messages.append(f"Aya-Vision backend: Hugging Face ({settings.aya_vlm_model})")
+            else:
+                messages.append(
+                    f"Aya-Vision backend: openai_compat ({settings.aya_vlm_model} @ "
+                    f"{settings.aya_vlm_base_url or 'AYA_VLM_BASE_URL unset'})"
+                )
         if settings.vlm_fast_mode:
             messages.append("VLM_FAST_MODE=true — only the first VLM scores (not paper ensemble)")
 

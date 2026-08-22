@@ -1,0 +1,15 @@
+{
+  "base_model": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+  "adapter_path": "/Users/dslc/Desktop/UML/models/uml-plantuml-lora",
+  "iters": 4000,
+  "iters_completed": 4000,
+  "iters_this_run": 1000,
+  "resumed_from": "/Users/dslc/Desktop/UML/models/uml-plantuml-lora/0001200_adapters.safetensors",
+  "stopped_early": false,
+  "batch_size": 2,
+  "learning_rate": 1e-05,
+  "num_layers": 8,
+  "max_seq_length": 2048,
+  "data": "/Users/dslc/Desktop/UML/data/finetune",
+  "task": "specification_to_plantuml"
+}

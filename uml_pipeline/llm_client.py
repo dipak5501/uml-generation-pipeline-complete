@@ -195,15 +195,27 @@ def _image_b64(image_path: Path, max_side: int = 1280) -> str:
 
 
 def parse_score_response(text: str) -> tuple[int, str | None]:
-    """Extract SCORE (0–6) and optional EXPLANATION from a VLM reply."""
+    """Extract SCORE (0–6) and optional EXPLANATION from a VLM reply.
+
+    If SEMANTIC/STRUCTURAL/SYNTACTIC/COHERENCE lines are present, SCORE is the
+    rounded mean of those criteria so models cannot rubber-stamp a lone SCORE: 5.
+    """
     score: int | None = None
     explanation: str | None = None
 
+    criteria: list[int] = []
+    for name in ("SEMANTIC", "STRUCTURAL", "SYNTACTIC", "COHERENCE"):
+        m_c = re.search(rf"(?im)^\s*{name}\s*[:\-]\s*([0-6])\b", text)
+        if m_c:
+            criteria.append(int(m_c.group(1)))
+    if len(criteria) >= 3:
+        score = int(round(sum(criteria) / len(criteria)))
+
     m_score = re.search(r"(?im)^\s*SCORE\s*[:\-]\s*([0-6])\b", text)
-    if m_score:
+    if score is None and m_score:
         score = int(m_score.group(1))
     m_exp = re.search(
-        r"(?is)^\s*EXPLANATION\s*[:\-]\s*(.+?)(?=\n\s*(?:SCORE|EXPLANATION)\s*[:\-]|\Z)",
+        r"(?is)^\s*EXPLANATION\s*[:\-]\s*(.+?)(?=\n\s*(?:SCORE|EXPLANATION|SEMANTIC|STRUCTURAL|SYNTACTIC|COHERENCE)\s*[:\-]|\Z)",
         text,
     )
     if m_exp:
